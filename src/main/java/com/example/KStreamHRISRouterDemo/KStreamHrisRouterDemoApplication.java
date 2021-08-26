@@ -3,6 +3,7 @@ package com.example.KStreamHRISRouterDemo;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.KeyValue;
@@ -25,6 +26,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @EnableKafkaStreams
 @SpringBootApplication
 public class KStreamHrisRouterDemoApplication {
@@ -58,12 +60,9 @@ public class KStreamHrisRouterDemoApplication {
 				builder.stream("test.hris.eventrouter",
 						Consumed.with(Serdes.String(), Serdes.String()));
 
-		KStream<String, Map<String,Object>> events = sourceStream.peek((key, value) -> {
-			System.out.println("From source: " + key + " - " + value);
-		}).flatMapValues((key, value) ->
+		KStream<String, Map<String,Object>> events = sourceStream.flatMapValues((key, value) ->
 				(List<Map<String,Object>>)JsonPath.parse(value).read("$.*", List.class)
 		);
-
 
 		events.filter((key, message) -> isMessageInEvents(message, kronosEvents)).map(kvMapper).
 				to("test.hris.kronos", Produced.with(Serdes.String(), Serdes.String()));
@@ -73,6 +72,17 @@ public class KStreamHrisRouterDemoApplication {
 				.to("test.hris.enboarder", Produced.with(Serdes.String(), Serdes.String()));
 		events.filter((key, message) -> isMessageInEvents(message, bwiseEvents)).map(kvMapper)
 				.to("test.hris.bwise", Produced.with(Serdes.String(), Serdes.String()));
+
+		//just for demo sake, we can listen to sinks
+		builder.stream("test.hris.kronos", Consumed.with(Serdes.String(), Serdes.String()))
+				.peek((key, value) -> log.info("test.hris.kronos - " + value));
+		builder.stream("test.hris.datacom", Consumed.with(Serdes.String(), Serdes.String()))
+				.peek((key, value) -> log.info("test.hris.datacom - " + value));
+		builder.stream("test.hris.enboarder", Consumed.with(Serdes.String(), Serdes.String()))
+				.peek((key, value) -> log.info("test.hris.enboarder - " + value));
+		builder.stream("test.hris.bwise", Consumed.with(Serdes.String(), Serdes.String()))
+				.peek((key, value) -> log.info("test.hris.bwise - " + value));
+
 
 		KafkaStreamsConfiguration streamsConfig = streamsConfigProvider.getIfAvailable();
 		Topology topology = builder.build(streamsConfig.asProperties());
