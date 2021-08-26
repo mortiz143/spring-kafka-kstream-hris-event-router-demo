@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: kafka-demo
+  main:
+    banner-mode: off
+  kafka:
+    bootstrap-servers: pkc-4vndj.australia-southeast1.gcp.confluent.cloud:9092
+    properties:
+      sasl:
+        mechanism: PLAIN
+        jaas.config: org.apache.kafka.common.security.plain.PlainLoginModule required username='LNAIYE2HMNSJPXNY' password='mqOJCOnA2DhcvV3jNZHQcfBRtUrcbUdNo90TnAcedmFWmXUuz/j0tOOJtPLaROSj';
+      security.protocol: SASL_SSL
+      topology.optimization: all
+    streams:
+      application-id: demo-kstreams
