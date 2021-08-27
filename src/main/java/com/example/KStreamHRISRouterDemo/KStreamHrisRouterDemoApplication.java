@@ -1,8 +1,8 @@
 package com.example.KStreamHRISRouterDemo;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jayway.jsonpath.JsonPath;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
@@ -59,35 +59,46 @@ public class KStreamHrisRouterDemoApplication {
 				builder.stream("test.hris.eventrouter",
 						Consumed.with(Serdes.String(), Serdes.String()));
 
-		KStream<String, Map<String,Object>> events = sourceStream.flatMapValues((key, value) -> {
+		KStream<String, Map<String,Object>> events =
+				sourceStream.peek((key, value) -> log.info("inbound message: " + value)).flatMapValues((key, value) -> {
 			try {
-				return (List<Map<String, Object>>) JsonPath.parse(value).read("$.*", List.class);
+				//return (List<Map<String, Object>>) JsonPath.parse(value).read("$.*", List.class);
 				//throw new RuntimeException("test error");
+				return mapper.readValue(value, new TypeReference<List<Map<String, Object>>>(){});
 			} catch (Exception e) {
-				log.error(e.getMessage(), e);
-				template.send("test.hris.eventrouter.dlq", value);
+				try {
+					return Collections.singleton(mapper.readValue(value, new TypeReference<Map<String, Object>>(){}));
+				} catch (Exception ex) {
+					log.error(e.getMessage(), e);
+					log.info("sending message to test.hris.eventrouter.dlq  - " + value);
+					template.send("test.hris.eventrouter.dlq", value);
+				}
 			}
 			return new ArrayList<>(0);
 		});
 
-		events.filter((key, message) -> isMessageInEvents(message, kronosEvents)).map(kvMapper).
-				to("test.hris.kronos", Produced.with(Serdes.String(), Serdes.String()));
+		events.filter((key, message) -> isMessageInEvents(message, kronosEvents)).map(kvMapper)
+				.peek((key, value) -> log.info("sending message to kronos: " + value))
+				.to("test.hris.kronos", Produced.with(Serdes.String(), Serdes.String()));
 		events.filter((key, message) -> isMessageInEvents(message, datacomEvents)).map(kvMapper)
+				.peek((key, value) -> log.info("sending message to datacom: " + value))
 				.to("test.hris.datacom", Produced.with(Serdes.String(), Serdes.String()));
 		events.filter((key, message) -> isMessageInEvents(message, enboarderEvents)).map(kvMapper)
+				.peek((key, value) -> log.info("sending message to enboarder: " + value))
 				.to("test.hris.enboarder", Produced.with(Serdes.String(), Serdes.String()));
 		events.filter((key, message) -> isMessageInEvents(message, bwiseEvents)).map(kvMapper)
+				.peek((key, value) -> log.info("sending message to bwise: " + value))
 				.to("test.hris.bwise", Produced.with(Serdes.String(), Serdes.String()));
 
 		//just for demo sake, we can listen to sinks
 		builder.stream("test.hris.kronos", Consumed.with(Serdes.String(), Serdes.String()))
-				.peek((key, value) -> log.info("test.hris.kronos - " + value));
+				.peek((key, value) -> log.info("received from test.hris.kronos - " + value));
 		builder.stream("test.hris.datacom", Consumed.with(Serdes.String(), Serdes.String()))
-				.peek((key, value) -> log.info("test.hris.datacom - " + value));
+				.peek((key, value) -> log.info("received from test.hris.datacom - " + value));
 		builder.stream("test.hris.enboarder", Consumed.with(Serdes.String(), Serdes.String()))
-				.peek((key, value) -> log.info("test.hris.enboarder - " + value));
+				.peek((key, value) -> log.info("received from test.hris.enboarder - " + value));
 		builder.stream("test.hris.bwise", Consumed.with(Serdes.String(), Serdes.String()))
-				.peek((key, value) -> log.info("test.hris.bwise - " + value));
+				.peek((key, value) -> log.info("received from test.hris.bwise - " + value));
 
 
 		KafkaStreamsConfiguration streamsConfig = streamsConfigProvider.getIfAvailable();
