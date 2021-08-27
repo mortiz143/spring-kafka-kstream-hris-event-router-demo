@@ -21,10 +21,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.kafka.annotation.EnableKafkaStreams;
 import org.springframework.kafka.annotation.KafkaStreamsDefaultConfiguration;
 import org.springframework.kafka.config.KafkaStreamsConfiguration;
+import org.springframework.kafka.core.KafkaTemplate;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Slf4j
 @EnableKafkaStreams
@@ -36,7 +35,7 @@ public class KStreamHrisRouterDemoApplication {
 	}
 
 	@Bean
-	public KafkaStreams kafkaStreams(ObjectMapper mapper, StreamsBuilder builder,
+	public KafkaStreams kafkaStreams(KafkaTemplate<Object, Object> template, ObjectMapper mapper, StreamsBuilder builder,
 									 @Qualifier(KafkaStreamsDefaultConfiguration.DEFAULT_STREAMS_CONFIG_BEAN_NAME)
 											 ObjectProvider<KafkaStreamsConfiguration> streamsConfigProvider) {
 
@@ -60,9 +59,16 @@ public class KStreamHrisRouterDemoApplication {
 				builder.stream("test.hris.eventrouter",
 						Consumed.with(Serdes.String(), Serdes.String()));
 
-		KStream<String, Map<String,Object>> events = sourceStream.flatMapValues((key, value) ->
-				(List<Map<String,Object>>)JsonPath.parse(value).read("$.*", List.class)
-		);
+		KStream<String, Map<String,Object>> events = sourceStream.flatMapValues((key, value) -> {
+			try {
+				return (List<Map<String, Object>>) JsonPath.parse(value).read("$.*", List.class);
+				//throw new RuntimeException("test error");
+			} catch (Exception e) {
+				log.error(e.getMessage(), e);
+				template.send("test.hris.eventrouter.dlq", value);
+			}
+			return new ArrayList<>(0);
+		});
 
 		events.filter((key, message) -> isMessageInEvents(message, kronosEvents)).map(kvMapper).
 				to("test.hris.kronos", Produced.with(Serdes.String(), Serdes.String()));
@@ -87,13 +93,13 @@ public class KStreamHrisRouterDemoApplication {
 		KafkaStreamsConfiguration streamsConfig = streamsConfigProvider.getIfAvailable();
 		Topology topology = builder.build(streamsConfig.asProperties());
 		KafkaStreams streams = new KafkaStreams(topology, streamsConfig.asProperties());
-
 		streams.start();
 		return streams;
 	}
 
 	private static boolean isMessageInEvents(Map<String, Object> message, String[] events) {
-		String event = message.get("event").toString();
+		if (message == null) { log.info("found null event"); return false;} //defensive only
+		String event = Optional.ofNullable(message.get("event")).orElse("null").toString();
 		boolean bool = Arrays.stream(events).anyMatch(ev -> ev.contentEquals(event));
 		return bool;
 	}
