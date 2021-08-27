@@ -109,8 +109,6 @@ public class KStreamHrisRouterDemoApplication {
 	}
 
 	private static boolean isMessageInEvents(Map<String, Object> message, String[] events) {
-		if (message == null) { log.info("found null event"); return false;} //defensive only
-		String event = Optional.ofNullable(message.get("event")).orElse("null").toString();
 		boolean bool = Arrays.stream(events).anyMatch(ev -> ev.contentEquals(event));
 		return bool;
 	}
